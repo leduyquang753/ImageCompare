@@ -1,0 +1,9 @@
+{
+	"@metadata": {
+		"authors": [
+			"Le Duy Quang"
+		]
+	},
+	"imageCompare-desc": "Compare two images with an interactive slider.",
+	"imageCompare-error": "<span style='color:red'>ImageCompare: Please provide 2 images to compare.</span>"
+}
