@@ -7,21 +7,52 @@ class ImageCompare {
 		$parser->setHook('imgcomp', 'ImageCompare::parseTag');
 	}
 	
+	# Whether the client is using mobile interface. Used to determine the width of images.
+	public static function isOnMobile() {
+		if (
+			class_exists("MobileContext") # MobileFrontend is installed.
+			&& MobileContext::singleton()->isMobileDevice() # Device is viewing the mobile version.
+		) return true;
+		else return false;
+	}
+	
+	/* Mobile friendly <imgcomp> parser.
+	   Parameters:
+	   - img1; img2: Title of two images, to the left and to the right, without "File:".
+	   - width: Width in pixels for images, for desktop. Defaults to their original width.
+	   - mobilewidth: Width in pixels for images in mobile version. Defaults to 320px or width of it is lower.
+	*/
 	public static function parseTag($input, array $args, Parser $parser, PPFrame $frame) {
-		$parser->getOutput()->addModules( 'ext.imageCompare' );
-		$parser->getOutput()->addModuleStyles( 'ext.imageCompare.styles' );
-		if (!isset($args['img1'], $args['img2'])) {
-			return '<span style="color:red">Error: Please provide 2 images to compare.</span>';
+		try {
+			$mobile = ImageCompare::isOnMobile();
+			$mobilewidth = 320;
+			$parser->getOutput()->addModules( 'ext.imageCompare'.($mobile ? '.mobile' : '') );
+			$parser->getOutput()->addModuleStyles( 'ext.imageCompare.styles'.($mobile ? '.mobile' : '') );
+			if (!isset($args['img1'], $args['img2'])) {
+				throw new ImageCompareException("error-noimg");
+			}
+			$divheight = 0;
+			$width = null;
+			if (isset($args['width']))
+				if (is_numeric($args['width']))
+					$width = round($args['width']);
+				else throw new ImageCompareException("error-numberinvalid");
+			if (isset($args['mobilewidth']))
+				if (is_numeric($args['mobilewidth']))
+					$mobilewidth = round($args['mobilewidth']);
+				else throw new ImageCompareException("error-numberinvalid");
+			else if ($width < 320) $mobilewidth = $width;
+			if ($mobile) $width = $mobilewidth;
+			$return = ImageCompare::makeImage($parser, Title::newFromDBKey(str_replace(' ', '_', 'File:'.$args['img2'].'')), 'img-comp-img', $divheight, $width)
+			.ImageCompare::makeImage($parser, Title::newFromDBKey(str_replace(' ', '_', 'File:'.$args['img1'].'')), 'img-comp-img img-comp-overlay', $divheight, $width)
+			.'</div>';
+			return "<div class='img-comp-container' style='height: {$divheight}px;'>".$return;
+		} catch (ImageCompareException $e) {
+			return wfMessage('ImageCompare-'.$e->getMessage())->parse();
 		}
-		$divheight = 0;
-		$width = null;
-		if (isset($args['width'])) $width = $args['width'];
-		$return = ImageCompare::makeImage($parser, Title::newFromDBKey(str_replace(' ', '_', 'File:'.$args['img2'].'')), 'img-comp-img', $divheight, $width)
-		.ImageCompare::makeImage($parser, Title::newFromDBKey(str_replace(' ', '_', 'File:'.$args['img1'].'')), 'img-comp-img img-comp-overlay', $divheight, $width)
-		.'</div>';
-		return "<div class='img-comp-container' style='height: {$divheight}px;'>".$return;
 	}
 
+	# Modified code from Parser.
 	public static function makeImage($parser, $title, $classes, &$divheight, $width) {
 		# Fetch and register the file (file title may be different via hooks)
 		list( $file, $title ) = $parser->fetchFileAndTitle( $title, "" );
@@ -37,6 +68,7 @@ class ImageCompare {
 		return $ret;
 	}
 	
+	# Modified code from Linker.
 	public static function makeImageLink(Parser $parser, Title $title, $file, $classes, &$imgheight, $width) {
 		$res = null;
 		$dummy = new DummyLinker;
@@ -46,7 +78,7 @@ class ImageCompare {
 		}
 
 		if (!$file) {
-			return '<span style="color:red">ImageCompare: Image doesn\'t exist or invalid.</span>';
+			throw new ImageCompareException("error-imginvalid");
 		}
 		
 		$prefix = $postfix = '';
@@ -59,16 +91,7 @@ class ImageCompare {
 		} else {
 			$imgheight = $thumb->getHeight( isset( $handlerParams['page'] ) ? $handlerParams['page'] : false );
 			Linker::processResponsiveImages( $file, $thumb, $handlerParams );
-			$params = [
-				'alt' => $frameParams['alt'],
-				'title' => $frameParams['title'],
-				'valign' => isset( $frameParams['valign'] ) ? $frameParams['valign'] : false,
-				'img-class' => $frameParams['class'] ];
-			if ( isset( $frameParams['border'] ) ) {
-				$params['img-class'] .= ( $params['img-class'] !== '' ? ' ' : '' ) . 'thumbborder';
-			}
-
-			$s = $thumb->toHtml( $params );
+			$s = $thumb->toHtml( [] );
 		}
 		$s = "<div class=\"float {$classes}\">{$s}</div>";
 		return str_replace( "\n", ' ', $prefix . $s . $postfix );
